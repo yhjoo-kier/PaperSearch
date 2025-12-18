@@ -46,25 +46,51 @@ PaperSearch/
 4. **연도 범위**: 특정 연도 범위가 있나요? (선택사항)
 5. **추가 키워드**: 포함하거나 제외할 키워드가 있나요? (선택사항)
 
-### 2단계: 검색 쿼리 생성 및 실행
+### 2단계: 키워드 확장
 
-수집한 정보를 바탕으로 검색을 실행합니다:
+**검색 실행 전, 반드시 키워드를 확장하세요.**
 
-```bash
-# 기본 검색
-python search_papers.py --topic "연구주제" --count 30
+사용자가 제공한 주제에 대해 당신의 지식을 활용하여 다음을 도출하세요:
 
-# 연도 필터 포함
-python search_papers.py --topic "연구주제" --count 30 --year-from 2020
+1. **영문 변환**: 한글 주제를 영문 학술 용어로 변환
+2. **동의어/유사어**: 같은 개념을 다르게 표현하는 용어들
+3. **하위 개념**: 주제에 포함되는 세부 기술/방법론
+4. **관련 키워드**: 해당 분야에서 함께 자주 언급되는 용어
 
-# 추가 키워드 포함
-python search_papers.py --topic "연구주제" --additional "키워드1,키워드2" --count 30
+**예시:**
+```
+사용자 입력: "transformer 기반 시계열 예측"
 
-# 특정 키워드 제외
-python search_papers.py --topic "연구주제" --exclude "제외키워드" --count 30
+키워드 확장:
+- 영문 변환: "transformer time series forecasting"
+- 동의어: "temporal prediction", "sequence forecasting"
+- 하위 개념: "Informer", "Autoformer", "PatchTST", "Temporal Fusion Transformer"
+- 관련 키워드: "attention mechanism", "long-range dependency", "multivariate forecasting"
 ```
 
-### 3단계: 결과 검토 및 선별
+확장한 키워드 목록을 사용자에게 보여주고, 추가/제외할 키워드가 있는지 확인받으세요.
+
+### 3단계: 검색 쿼리 생성 및 실행
+
+확장된 키워드를 바탕으로 검색을 실행합니다:
+
+```bash
+# 기본 검색 (주요 키워드 사용)
+python search_papers.py --topic "주요키워드" --count 30
+
+# 연도 필터 포함
+python search_papers.py --topic "주요키워드" --count 30 --year-from 2020
+
+# 확장된 키워드 포함 (동의어, 하위개념 등)
+python search_papers.py --topic "주요키워드" --additional "확장키워드1,확장키워드2,확장키워드3" --count 30
+
+# 특정 키워드 제외
+python search_papers.py --topic "주요키워드" --exclude "제외키워드" --count 30
+```
+
+**팁**: `--additional` 옵션에 확장한 키워드들을 포함하면 더 포괄적인 검색이 가능합니다.
+
+### 4단계: 결과 검토 및 선별
 
 검색 결과를 다음 기준으로 분석하세요:
 
@@ -80,7 +106,7 @@ python search_papers.py --topic "연구주제" --exclude "제외키워드" --cou
    - 사용자가 명시한 목적에 부합하는가?
    - 제외 조건에 해당하지 않는가?
 
-### 4단계: 결과 보고
+### 5단계: 결과 보고
 
 선별 결과를 다음 형식으로 보고하세요:
 

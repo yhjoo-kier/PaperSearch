@@ -308,6 +308,18 @@ Examples:
         help="Delay between downloads in seconds (default: 1.0)"
     )
 
+    # Source options
+    parser.add_argument(
+        "--no-elsevier",
+        action="store_true",
+        help="Disable Elsevier ScienceDirect API (uses SCOPUS_API_KEY)"
+    )
+    parser.add_argument(
+        "--no-unpaywall",
+        action="store_true",
+        help="Disable Unpaywall API (open access)"
+    )
+
     # Display options
     parser.add_argument(
         "--list-only",
@@ -390,12 +402,30 @@ Examples:
         sys.exit(0)
 
     # Initialize downloader
+    use_elsevier = not args.no_elsevier
+    use_unpaywall = not args.no_unpaywall
+
     downloader = PDFDownloader(
         download_dir=args.output_dir,
-        email=args.email
+        email=args.email,
+        use_elsevier=use_elsevier,
+        use_unpaywall=use_unpaywall
     )
 
+    # Show download sources status
     print(f"\nDownloading to: {Path(args.output_dir).absolute()}")
+    print("Download sources:")
+    if downloader.use_elsevier:
+        print("  - Elsevier ScienceDirect API: ENABLED (using SCOPUS_API_KEY)")
+    else:
+        if use_elsevier and not downloader.api_key:
+            print("  - Elsevier ScienceDirect API: DISABLED (no API key found)")
+        else:
+            print("  - Elsevier ScienceDirect API: DISABLED")
+    if downloader.use_unpaywall:
+        print("  - Unpaywall (open access): ENABLED")
+    else:
+        print("  - Unpaywall (open access): DISABLED")
     print("-" * 80)
 
     # Download papers

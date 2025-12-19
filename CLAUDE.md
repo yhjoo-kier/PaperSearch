@@ -182,11 +182,16 @@ python search_papers.py --topic "주요키워드" --exclude "제외키워드1,�
 
 사용자가 선별된 논문의 PDF 다운로드를 원하는 경우, 다음 절차를 따르세요:
 
-1. **다운로드 가능 여부 확인**
-   - DOI가 있는 논문만 다운로드 가능
-   - Unpaywall API를 통해 오픈 액세스 PDF 검색
+1. **다운로드 소스 (우선순위)**
+   - **Elsevier ScienceDirect API**: 기관 구독이 있는 경우 (SCOPUS_API_KEY 사용)
+   - **Unpaywall API**: 오픈 액세스 논문 (fallback)
 
-2. **다운로드 실행**
+2. **다운로드 가능 여부 확인**
+   - DOI가 있는 논문만 다운로드 가능
+   - 기관 구독 + 기관 네트워크(IP) 필요 (Elsevier)
+   - 오픈 액세스 논문은 어디서나 다운로드 가능
+
+3. **다운로드 실행**
    ```bash
    # 대화형 모드 (추천) - 다운로드할 논문 선택
    python download_papers.py --latest
@@ -196,11 +201,17 @@ python search_papers.py --topic "주요키워드" --exclude "제외키워드1,�
 
    # DOI가 있는 모든 논문 다운로드
    python download_papers.py --latest --all
+
+   # Elsevier만 사용 (오픈 액세스 비활성화)
+   python download_papers.py --latest --all --no-unpaywall
+
+   # 오픈 액세스만 사용 (Elsevier 비활성화)
+   python download_papers.py --latest --all --no-elsevier
    ```
 
-3. **결과 안내**
+4. **결과 안내**
    - 다운로드 성공/실패 여부 보고
-   - 오픈 액세스가 아닌 논문은 다운로드 불가
+   - 소스별 다운로드 통계 표시 (elsevier, unpaywall 등)
    - 다운로드된 파일 위치: `data/pdfs/`
 
 ---
@@ -260,7 +271,9 @@ ls -la data/pdfs/
 2. **API 제한**: Scopus API는 요청 제한이 있으므로 과도한 검색 자제
 3. **결과 저장**: 검색 결과는 자동으로 `data/papers/` 디렉토리에 JSON으로 저장됨
 4. **한글 주제**: 한글 주제도 검색 가능하나, 영문 키워드가 더 많은 결과를 반환함
-5. **PDF 다운로드**: Unpaywall API를 통해 오픈 액세스 논문만 다운로드 가능
+5. **PDF 다운로드**:
+   - Elsevier 논문: 기관 구독 + 기관 네트워크(IP)에서 SCOPUS_API_KEY로 다운로드 가능
+   - 기타 출판사: Unpaywall API를 통해 오픈 액세스 논문만 다운로드 가능
 
 ### 문제 해결
 

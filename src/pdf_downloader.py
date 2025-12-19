@@ -1,4 +1,4 @@
-"""PDF downloader for academic papers using Unpaywall API."""
+"""PDF downloader for academic papers using Elsevier and Unpaywall APIs."""
 
 import os
 import re
@@ -6,7 +6,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 import requests
 
@@ -21,32 +20,49 @@ class DownloadResult:
     success: bool
     filepath: Optional[Path] = None
     error: Optional[str] = None
-    source: Optional[str] = None  # e.g., "unpaywall", "doi_redirect"
+    source: Optional[str] = None  # e.g., "elsevier", "unpaywall", "cached"
 
 
 class PDFDownloader:
-    """Downloads PDF files for academic papers."""
+    """Downloads PDF files for academic papers.
 
-    # Unpaywall API endpoint
+    Supports multiple download sources:
+    1. Elsevier ScienceDirect API (requires institutional subscription)
+    2. Unpaywall API (open access papers)
+    """
+
+    # API endpoints
+    ELSEVIER_API = "https://api.elsevier.com/content/article/doi"
     UNPAYWALL_API = "https://api.unpaywall.org/v2"
 
     def __init__(
         self,
         download_dir: str = "data/pdfs",
+        api_key: Optional[str] = None,
         email: Optional[str] = None,
-        timeout: int = 60
+        timeout: int = 60,
+        use_elsevier: bool = True,
+        use_unpaywall: bool = True
     ):
         """Initialize PDF downloader.
 
         Args:
             download_dir: Directory to save downloaded PDFs.
+            api_key: Elsevier API key (uses SCOPUS_API_KEY env var if not provided).
             email: Email for Unpaywall API (required for API access).
             timeout: Request timeout in seconds.
+            use_elsevier: Whether to try Elsevier API first.
+            use_unpaywall: Whether to use Unpaywall as fallback.
         """
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(parents=True, exist_ok=True)
+
+        self.api_key = api_key or os.environ.get("SCOPUS_API_KEY")
         self.email = email or os.environ.get("UNPAYWALL_EMAIL", "user@example.com")
         self.timeout = timeout
+        self.use_elsevier = use_elsevier and bool(self.api_key)
+        self.use_unpaywall = use_unpaywall
+
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": "PaperSearch/1.0 (Academic Research Tool)"
@@ -72,6 +88,89 @@ class PDFDownloader:
             filename = filename[:max_length]
 
         return filename.strip('_')
+
+    def download_from_elsevier(self, doi: str, filepath: Path) -> Optional[str]:
+        """Download PDF from Elsevier ScienceDirect API.
+
+        Args:
+            doi: Digital Object Identifier.
+            filepath: Path to save the PDF.
+
+        Returns:
+            Source string if successful, None otherwise.
+        """
+        if not self.api_key:
+            return None
+
+        url = f"{self.ELSEVIER_API}/{doi}"
+        headers = {
+            "X-ELS-APIKey": self.api_key,
+            "Accept": "application/pdf"
+        }
+
+        try:
+            response = self.session.get(
+                url,
+                headers=headers,
+                timeout=self.timeout,
+                stream=True,
+                allow_redirects=True
+            )
+
+            # Check for successful response
+            if response.status_code == 200:
+                content_type = response.headers.get("Content-Type", "")
+
+                # Verify it's actually a PDF
+                if "pdf" in content_type.lower() or "octet-stream" in content_type.lower():
+                    with open(filepath, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+
+                    # Verify file size
+                    if filepath.stat().st_size > 1000:
+                        return "elsevier"
+                    else:
+                        filepath.unlink()
+                        return None
+                else:
+                    # Check for PDF magic bytes
+                    first_bytes = b""
+                    for chunk in response.iter_content(chunk_size=8):
+                        first_bytes = chunk
+                        break
+
+                    if first_bytes.startswith(b"%PDF"):
+                        with open(filepath, "wb") as f:
+                            f.write(first_bytes)
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+
+                        if filepath.stat().st_size > 1000:
+                            return "elsevier"
+                        else:
+                            filepath.unlink()
+                            return None
+
+            # Handle specific error codes
+            elif response.status_code == 401:
+                # Authentication issue
+                return None
+            elif response.status_code == 403:
+                # No access (subscription required or IP not authorized)
+                return None
+            elif response.status_code == 404:
+                # Article not found
+                return None
+
+            return None
+
+        except requests.exceptions.RequestException:
+            if filepath.exists():
+                filepath.unlink()
+            return None
 
     def get_unpaywall_pdf_url(self, doi: str) -> Optional[dict]:
         """Get PDF URL from Unpaywall API.
@@ -119,7 +218,7 @@ class PDFDownloader:
 
             return None
 
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             return None
 
     def download_pdf(self, url: str, filepath: Path) -> bool:
@@ -168,13 +267,17 @@ class PDFDownloader:
 
             return True
 
-        except Exception as e:
+        except Exception:
             if filepath.exists():
                 filepath.unlink()
             return False
 
     def download_paper(self, paper: Paper, filename: Optional[str] = None) -> DownloadResult:
         """Download PDF for a single paper.
+
+        Tries sources in order:
+        1. Elsevier ScienceDirect API (if enabled and API key available)
+        2. Unpaywall API (open access fallback)
 
         Args:
             paper: Paper object with metadata.
@@ -207,23 +310,43 @@ class PDFDownloader:
                 source="cached"
             )
 
-        # Try Unpaywall first
-        unpaywall_result = self.get_unpaywall_pdf_url(paper.doi)
-
-        if unpaywall_result:
-            pdf_url = unpaywall_result["pdf_url"]
-            if self.download_pdf(pdf_url, filepath):
+        # Try Elsevier first (for subscribed content)
+        if self.use_elsevier:
+            source = self.download_from_elsevier(paper.doi, filepath)
+            if source:
                 return DownloadResult(
                     paper=paper,
                     success=True,
                     filepath=filepath,
-                    source=f"unpaywall:{unpaywall_result['source']}"
+                    source=source
                 )
+
+        # Try Unpaywall (open access)
+        if self.use_unpaywall:
+            unpaywall_result = self.get_unpaywall_pdf_url(paper.doi)
+            if unpaywall_result:
+                pdf_url = unpaywall_result["pdf_url"]
+                if self.download_pdf(pdf_url, filepath):
+                    return DownloadResult(
+                        paper=paper,
+                        success=True,
+                        filepath=filepath,
+                        source=f"unpaywall:{unpaywall_result['source']}"
+                    )
+
+        # All sources failed
+        error_msg = "PDF not available"
+        if self.use_elsevier and self.use_unpaywall:
+            error_msg = "PDF not available (no subscription access or open access)"
+        elif self.use_elsevier:
+            error_msg = "PDF not available via Elsevier (check subscription/IP)"
+        elif self.use_unpaywall:
+            error_msg = "PDF not available via open access"
 
         return DownloadResult(
             paper=paper,
             success=False,
-            error="PDF not available via open access"
+            error=error_msg
         )
 
     def download_papers(

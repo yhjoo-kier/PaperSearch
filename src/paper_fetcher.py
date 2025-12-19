@@ -116,6 +116,7 @@ class PaperFetcher:
         topic: str,
         count: int = 50,
         additional_terms: Optional[list[str]] = None,
+        additional_terms_or: Optional[list[str]] = None,
         exclude: Optional[list[str]] = None,
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
@@ -126,7 +127,8 @@ class PaperFetcher:
         Args:
             topic: Research topic.
             count: Number of papers to fetch.
-            additional_terms: Additional search terms.
+            additional_terms: Additional search terms with AND operator.
+            additional_terms_or: Additional search terms with OR operator.
             exclude: Terms to exclude.
             year_from: Start year filter.
             year_to: End year filter.
@@ -138,6 +140,7 @@ class PaperFetcher:
         query = build_query_from_topic(
             topic=topic,
             additional_terms=additional_terms,
+            additional_terms_or=additional_terms_or,
             exclude=exclude,
             year_from=year_from,
             year_to=year_to

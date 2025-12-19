@@ -9,8 +9,12 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
+
+# Fix Windows encoding issues with special characters
+os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 from dotenv import load_dotenv
 
@@ -55,7 +59,11 @@ Examples:
     )
     parser.add_argument(
         "--additional", "-a",
-        help="Additional search terms (comma-separated)"
+        help="Additional search terms with AND operator (comma-separated). Note: May produce very few results."
+    )
+    parser.add_argument(
+        "--additional-or",
+        help="Additional search terms with OR operator (comma-separated). Recommended for broader results."
     )
     parser.add_argument(
         "--exclude", "-e",
@@ -122,12 +130,14 @@ Examples:
     else:
         # Build query from topic
         additional = args.additional.split(",") if args.additional else None
+        additional_or = args.additional_or.split(",") if args.additional_or else None
         exclude = args.exclude.split(",") if args.exclude else None
 
         query, papers = fetcher.fetch_by_topic(
             topic=args.topic,
             count=args.count,
             additional_terms=additional,
+            additional_terms_or=additional_or,
             exclude=exclude,
             year_from=args.year_from,
             year_to=args.year_to,
@@ -144,6 +154,9 @@ Examples:
             f.write(summary)
         print(f"Summary written to: {args.output}", file=sys.stderr)
     else:
+        # Use utf-8 encoding for stdout to handle special characters
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8')
         print(summary)
 
 

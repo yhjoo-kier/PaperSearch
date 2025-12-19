@@ -21,6 +21,7 @@ class QueryBuilder:
     """
 
     terms: list[str] = field(default_factory=list)
+    terms_or: list[str] = field(default_factory=list)  # Terms connected with OR
     exclude_terms: list[str] = field(default_factory=list)
     title_terms: list[str] = field(default_factory=list)
     authors: list[str] = field(default_factory=list)
@@ -35,8 +36,13 @@ class QueryBuilder:
         return self
 
     def add_terms(self, terms: list[str]) -> "QueryBuilder":
-        """Add multiple search terms."""
+        """Add multiple search terms (connected with AND)."""
         self.terms.extend(terms)
+        return self
+
+    def add_terms_or(self, terms: list[str]) -> "QueryBuilder":
+        """Add multiple search terms (connected with OR)."""
+        self.terms_or.extend(terms)
         return self
 
     def exclude_term(self, term: str) -> "QueryBuilder":
@@ -90,10 +96,15 @@ class QueryBuilder:
 
         parts = []
 
-        # Add main search terms
+        # Add main search terms (AND)
         if self.terms:
             term_queries = [f'TITLE-ABS-KEY("{t}")' for t in self.terms]
             parts.append(f"({' AND '.join(term_queries)})")
+
+        # Add OR search terms
+        if self.terms_or:
+            or_queries = [f'TITLE-ABS-KEY("{t}")' for t in self.terms_or]
+            parts.append(f"({' OR '.join(or_queries)})")
 
         # Add title-specific terms
         if self.title_terms:
@@ -132,6 +143,7 @@ class QueryBuilder:
 def build_query_from_topic(
     topic: str,
     additional_terms: Optional[list[str]] = None,
+    additional_terms_or: Optional[list[str]] = None,
     exclude: Optional[list[str]] = None,
     year_from: Optional[int] = None,
     year_to: Optional[int] = None,
@@ -141,7 +153,8 @@ def build_query_from_topic(
 
     Args:
         topic: Main research topic.
-        additional_terms: Additional terms to include.
+        additional_terms: Additional terms to include with AND operator.
+        additional_terms_or: Additional terms to include with OR operator.
         exclude: Terms to exclude.
         year_from: Start year for publication filter.
         year_to: End year for publication filter.
@@ -155,6 +168,9 @@ def build_query_from_topic(
 
     if additional_terms:
         builder.add_terms(additional_terms)
+
+    if additional_terms_or:
+        builder.add_terms_or(additional_terms_or)
 
     if exclude:
         for term in exclude:

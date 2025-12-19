@@ -74,21 +74,58 @@ PaperSearch/
 
 확장된 키워드를 바탕으로 검색을 실행합니다:
 
+#### 중요: 효과적인 쿼리 작성 전략
+
+**`--additional` 옵션의 한계:**
+- 모든 키워드를 AND 연산자로 연결하여 결과가 매우 제한적
+- 확장 키워드를 모두 포함하는 논문만 검색 → 결과 0-1편
+
+**권장: `--query` 옵션 사용**
+- OR 연산자로 관련 용어를 유연하게 조합
+- 주요 개념은 AND, 동의어/관련 용어는 OR로 연결
+
 ```bash
-# 기본 검색 (주요 키워드 사용)
-python search_papers.py --topic "주요키워드" --count 30
+# ❌ 비권장: --additional (모든 키워드 AND)
+python search_papers.py --topic "topology optimization heat sink" \
+  --additional "thermal management,SIMP,electronics cooling,microchannel" \
+  --count 30
+# → 결과: 1편 (모든 조건을 만족하는 논문만 검색)
 
-# 연도 필터 포함
-python search_papers.py --topic "주요키워드" --count 30 --year-from 2020
-
-# 확장된 키워드 포함 (동의어, 하위개념 등)
-python search_papers.py --topic "주요키워드" --additional "확장키워드1,확장키워드2,확장키워드3" --count 30
-
-# 특정 키워드 제외
-python search_papers.py --topic "주요키워드" --exclude "제외키워드" --count 30
+# ✅ 권장: --query (OR로 유연하게 조합)
+python search_papers.py --query 'TITLE-ABS-KEY("topology optimization") AND TITLE-ABS-KEY("heat sink" OR "thermal management" OR "heat exchanger" OR "cooling") AND PUBYEAR > 2019' --count 30
+# → 결과: 30편 (관련성 높은 논문 다수)
 ```
 
-**팁**: `--additional` 옵션에 확장한 키워드들을 포함하면 더 포괄적인 검색이 가능합니다.
+#### 검색 명령어 예시
+
+```bash
+# 1. 간단한 주제 검색 (단일 키워드)
+python search_papers.py --topic "주요키워드" --count 30 --year-from 2020
+
+# 2. 복잡한 검색 (추천)
+python search_papers.py --query 'TITLE-ABS-KEY("핵심개념") AND (TITLE-ABS-KEY("관련개념1") OR TITLE-ABS-KEY("관련개념2") OR TITLE-ABS-KEY("관련개념3")) AND PUBYEAR > 2019' --count 30
+
+# 3. 키워드 제외
+python search_papers.py --topic "주요키워드" --exclude "제외키워드1,제외키워드2" --count 30
+```
+
+#### 실제 사용 예시
+
+```bash
+# 예시 1: 히트 싱크 토폴로지 최적화 (전자기기 냉각)
+.venv/Scripts/python.exe search_papers.py --query 'TITLE-ABS-KEY("topology optimization") AND TITLE-ABS-KEY("heat sink" OR "thermal management" OR "heat exchanger" OR "cooling") AND PUBYEAR > 2019' --count 30
+
+# 예시 2: Transformer 기반 시계열 예측
+.venv/Scripts/python.exe search_papers.py --query 'TITLE-ABS-KEY("transformer") AND TITLE-ABS-KEY("time series" OR "temporal" OR "forecasting" OR "prediction") AND PUBYEAR > 2020' --count 50
+
+# 예시 3: 강화학습 (리뷰 제외)
+.venv/Scripts/python.exe search_papers.py --topic "reinforcement learning" --exclude "review,survey" --year-from 2021 --count 40
+```
+
+**팁**:
+- 가상환경 Python 사용: `.venv/Scripts/python.exe` (Windows)
+- 복잡한 쿼리는 반드시 `--query` 옵션 사용
+- 인용부호 안에서는 공백 사용 가능
 
 ### 4단계: 결과 검토 및 선별
 
@@ -161,12 +198,64 @@ ls -la data/papers/
 
 ---
 
-## 주의사항
+## 주의사항 및 문제 해결
+
+### 일반 주의사항
 
 1. **API 키 확인**: 검색 전 `SCOPUS_API_KEY` 환경변수가 설정되어 있는지 확인
 2. **API 제한**: Scopus API는 요청 제한이 있으므로 과도한 검색 자제
 3. **결과 저장**: 검색 결과는 자동으로 `data/papers/` 디렉토리에 JSON으로 저장됨
 4. **한글 주제**: 한글 주제도 검색 가능하나, 영문 키워드가 더 많은 결과를 반환함
+
+### 문제 해결
+
+#### 1. UnicodeEncodeError 발생 시
+
+**증상**: `UnicodeEncodeError: 'cp949' codec can't encode character`
+
+**원인**: Windows 터미널에서 특수문자(±, −, × 등) 출력 시 인코딩 오류
+
+**해결 방법**:
+```bash
+# Windows CMD
+set PYTHONIOENCODING=utf-8
+.venv/Scripts/python.exe search_papers.py --query "..." --count 30
+
+# PowerShell
+$env:PYTHONIOENCODING="utf-8"
+.venv/Scripts/python.exe search_papers.py --query "..." --count 30
+```
+
+또는 가상환경 Python을 직접 사용:
+```bash
+.venv/Scripts/python.exe search_papers.py --query "..." --count 30
+```
+
+#### 2. 검색 결과가 0-1편일 때
+
+**원인**: `--additional` 옵션이 모든 키워드를 AND로 연결
+
+**해결 방법**: `--query` 옵션으로 OR 연산자 사용
+```bash
+# 잘못된 방법
+python search_papers.py --topic "A" --additional "B,C,D,E"
+
+# 올바른 방법
+python search_papers.py --query 'TITLE-ABS-KEY("A") AND (TITLE-ABS-KEY("B") OR TITLE-ABS-KEY("C"))'
+```
+
+#### 3. 검색 결과 파일 찾기
+
+검색 결과는 타임스탬프와 함께 저장됩니다:
+```bash
+ls -la data/papers/
+# papers_20251219_130800.json 형식
+```
+
+최신 파일을 찾으려면:
+```bash
+ls -lt data/papers/ | head -5
+```
 
 ---
 

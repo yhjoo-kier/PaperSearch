@@ -14,12 +14,15 @@
 PaperSearch/
 ├── CLAUDE.md              # 이 파일 - Claude Code 워크플로우 정의
 ├── search_papers.py       # 논문 검색 CLI 스크립트
+├── download_papers.py     # PDF 다운로드 CLI 스크립트
 ├── src/
 │   ├── scopus_client.py   # Scopus API 클라이언트
 │   ├── query_builder.py   # 검색 쿼리 빌더
-│   └── paper_fetcher.py   # 논문 가져오기 및 저장
+│   ├── paper_fetcher.py   # 논문 가져오기 및 저장
+│   └── pdf_downloader.py  # PDF 다운로더 (Unpaywall API 사용)
 ├── data/
-│   └── papers/            # 검색 결과 저장 디렉토리
+│   ├── papers/            # 검색 결과 저장 디렉토리
+│   └── pdfs/              # 다운로드된 PDF 저장 디렉토리
 └── .claude/
     └── commands/          # 슬래시 커맨드 정의
 ```
@@ -175,6 +178,31 @@ python search_papers.py --topic "주요키워드" --exclude "제외키워드1,�
 [더 나은 결과를 위한 추가 검색 키워드나 필터 제안]
 ```
 
+### 6단계: PDF 다운로드 (선택사항)
+
+사용자가 선별된 논문의 PDF 다운로드를 원하는 경우, 다음 절차를 따르세요:
+
+1. **다운로드 가능 여부 확인**
+   - DOI가 있는 논문만 다운로드 가능
+   - Unpaywall API를 통해 오픈 액세스 PDF 검색
+
+2. **다운로드 실행**
+   ```bash
+   # 대화형 모드 (추천) - 다운로드할 논문 선택
+   python download_papers.py --latest
+
+   # 특정 논문 번호 지정
+   python download_papers.py --latest --select 1,3,5-10
+
+   # DOI가 있는 모든 논문 다운로드
+   python download_papers.py --latest --all
+   ```
+
+3. **결과 안내**
+   - 다운로드 성공/실패 여부 보고
+   - 오픈 액세스가 아닌 논문은 다운로드 불가
+   - 다운로드된 파일 위치: `data/pdfs/`
+
 ---
 
 ## 유용한 명령어
@@ -196,6 +224,32 @@ python search_papers.py --load data/papers/papers_YYYYMMDD_HHMMSS.json
 ls -la data/papers/
 ```
 
+### PDF 다운로드
+```bash
+# 대화형 모드 - 논문 목록에서 선택
+python download_papers.py --latest
+
+# 특정 파일에서 로드
+python download_papers.py --load data/papers/papers_YYYYMMDD_HHMMSS.json
+
+# 특정 논문만 다운로드 (번호로 지정)
+python download_papers.py --latest --select 1,3,5-10
+
+# DOI가 있는 모든 논문 다운로드
+python download_papers.py --latest --all
+
+# 다운로드 디렉토리 지정
+python download_papers.py --latest --all --output-dir ./my_papers
+
+# 논문 목록만 확인 (다운로드 안 함)
+python download_papers.py --latest --list-only
+```
+
+### 다운로드된 PDF 확인
+```bash
+ls -la data/pdfs/
+```
+
 ---
 
 ## 주의사항 및 문제 해결
@@ -206,6 +260,7 @@ ls -la data/papers/
 2. **API 제한**: Scopus API는 요청 제한이 있으므로 과도한 검색 자제
 3. **결과 저장**: 검색 결과는 자동으로 `data/papers/` 디렉토리에 JSON으로 저장됨
 4. **한글 주제**: 한글 주제도 검색 가능하나, 영문 키워드가 더 많은 결과를 반환함
+5. **PDF 다운로드**: Unpaywall API를 통해 오픈 액세스 논문만 다운로드 가능
 
 ### 문제 해결
 

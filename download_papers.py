@@ -315,6 +315,11 @@ Examples:
         help="Disable Elsevier ScienceDirect API (uses SCOPUS_API_KEY)"
     )
     parser.add_argument(
+        "--no-springer",
+        action="store_true",
+        help="Disable Springer Nature API (uses SPRINGER_META_API_KEY)"
+    )
+    parser.add_argument(
         "--no-unpaywall",
         action="store_true",
         help="Disable Unpaywall API (open access)"
@@ -403,12 +408,14 @@ Examples:
 
     # Initialize downloader
     use_elsevier = not args.no_elsevier
+    use_springer = not args.no_springer
     use_unpaywall = not args.no_unpaywall
 
     downloader = PDFDownloader(
         download_dir=args.output_dir,
         email=args.email,
         use_elsevier=use_elsevier,
+        use_springer=use_springer,
         use_unpaywall=use_unpaywall
     )
 
@@ -422,6 +429,13 @@ Examples:
             print("  - Elsevier ScienceDirect API: DISABLED (no API key found)")
         else:
             print("  - Elsevier ScienceDirect API: DISABLED")
+    if downloader.use_springer:
+        print("  - Springer Nature API: ENABLED (using SPRINGER_META_API_KEY)")
+    else:
+        if use_springer and not downloader.springer_api_key:
+            print("  - Springer Nature API: DISABLED (no API key found)")
+        else:
+            print("  - Springer Nature API: DISABLED")
     if downloader.use_unpaywall:
         print("  - Unpaywall (open access): ENABLED")
     else:

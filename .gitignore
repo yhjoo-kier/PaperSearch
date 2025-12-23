@@ -39,6 +39,7 @@ env/
 
 # Data files (keep directory structure)
 data/papers/*.json
+data/pdfs/*.pdf
 
 # OS
 .DS_Store

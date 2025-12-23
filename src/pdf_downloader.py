@@ -1,4 +1,4 @@
-"""PDF downloader for academic papers using Elsevier and Unpaywall APIs."""
+"""PDF downloader for academic papers using Elsevier, Springer, and Unpaywall APIs."""
 
 import os
 import re
@@ -28,20 +28,25 @@ class PDFDownloader:
 
     Supports multiple download sources:
     1. Elsevier ScienceDirect API (requires institutional subscription)
-    2. Unpaywall API (open access papers)
+    2. Springer Nature API (uses Meta API to find PDF URLs)
+    3. Unpaywall API (open access papers)
     """
 
     # API endpoints
     ELSEVIER_API = "https://api.elsevier.com/content/article/doi"
+    SPRINGER_META_API = "https://api.springernature.com/meta/v2/json"
+    SPRINGER_PDF_BASE = "https://link.springer.com/content/pdf"
     UNPAYWALL_API = "https://api.unpaywall.org/v2"
 
     def __init__(
         self,
         download_dir: str = "data/pdfs",
         api_key: Optional[str] = None,
+        springer_api_key: Optional[str] = None,
         email: Optional[str] = None,
         timeout: int = 60,
         use_elsevier: bool = True,
+        use_springer: bool = True,
         use_unpaywall: bool = True
     ):
         """Initialize PDF downloader.
@@ -49,18 +54,22 @@ class PDFDownloader:
         Args:
             download_dir: Directory to save downloaded PDFs.
             api_key: Elsevier API key (uses SCOPUS_API_KEY env var if not provided).
+            springer_api_key: Springer Meta API key (uses SPRINGER_META_API_KEY env var if not provided).
             email: Email for Unpaywall API (required for API access).
             timeout: Request timeout in seconds.
             use_elsevier: Whether to try Elsevier API first.
+            use_springer: Whether to try Springer API.
             use_unpaywall: Whether to use Unpaywall as fallback.
         """
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
         self.api_key = api_key or os.environ.get("SCOPUS_API_KEY")
+        self.springer_api_key = springer_api_key or os.environ.get("SPRINGER_META_API_KEY")
         self.email = email or os.environ.get("UNPAYWALL_EMAIL", "user@example.com")
         self.timeout = timeout
         self.use_elsevier = use_elsevier and bool(self.api_key)
+        self.use_springer = use_springer and bool(self.springer_api_key)
         self.use_unpaywall = use_unpaywall
 
         self.session = requests.Session()
@@ -164,6 +173,134 @@ class PDFDownloader:
             elif response.status_code == 404:
                 # Article not found
                 return None
+
+            return None
+
+        except requests.exceptions.RequestException:
+            if filepath.exists():
+                filepath.unlink()
+            return None
+
+    def get_springer_pdf_url(self, doi: str) -> Optional[dict]:
+        """Get PDF URL from Springer Meta API.
+
+        Args:
+            doi: Digital Object Identifier.
+
+        Returns:
+            Dict with pdf_url and metadata, or None if not found.
+        """
+        if not self.springer_api_key or not doi:
+            return None
+
+        params = {
+            "api_key": self.springer_api_key,
+            "q": f"doi:{doi}",
+            "p": 1
+        }
+
+        try:
+            response = self.session.get(
+                self.SPRINGER_META_API,
+                params=params,
+                timeout=self.timeout
+            )
+
+            if response.status_code != 200:
+                return None
+
+            data = response.json()
+            records = data.get("records", [])
+
+            if not records:
+                return None
+
+            record = records[0]
+
+            # Check if this is a Springer publication
+            publisher = record.get("publisher", "").lower()
+            if "springer" not in publisher:
+                return None
+
+            # Get PDF URL from response or construct it
+            pdf_url = None
+            urls = record.get("url", [])
+
+            for url_entry in urls:
+                if url_entry.get("format") == "pdf":
+                    pdf_url = url_entry.get("value")
+                    break
+
+            # If no direct PDF URL, construct from DOI
+            if not pdf_url:
+                pdf_url = f"{self.SPRINGER_PDF_BASE}/{doi}.pdf"
+
+            return {
+                "pdf_url": pdf_url,
+                "publisher": record.get("publisherName", "Springer"),
+                "openaccess": record.get("openaccess", "false") == "true",
+                "title": record.get("title", "")
+            }
+
+        except requests.exceptions.RequestException:
+            return None
+
+    def download_from_springer(self, doi: str, filepath: Path) -> Optional[str]:
+        """Download PDF from Springer using Meta API.
+
+        Args:
+            doi: Digital Object Identifier.
+            filepath: Path to save the PDF.
+
+        Returns:
+            Source string if successful, None otherwise.
+        """
+        springer_info = self.get_springer_pdf_url(doi)
+        if not springer_info:
+            return None
+
+        # Try direct PDF URL pattern first (more reliable)
+        pdf_url = f"{self.SPRINGER_PDF_BASE}/{doi}.pdf"
+
+        try:
+            response = self.session.get(
+                pdf_url,
+                timeout=self.timeout,
+                stream=True,
+                allow_redirects=True
+            )
+
+            if response.status_code == 200:
+                content_type = response.headers.get("Content-Type", "")
+
+                # Verify it's a PDF
+                if "pdf" in content_type.lower():
+                    with open(filepath, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+
+                    # Verify file size
+                    if filepath.stat().st_size > 1000:
+                        return "springer"
+                    else:
+                        filepath.unlink()
+                        return None
+                else:
+                    # Check for PDF magic bytes
+                    first_bytes = next(response.iter_content(chunk_size=8), b"")
+                    if first_bytes.startswith(b"%PDF"):
+                        with open(filepath, "wb") as f:
+                            f.write(first_bytes)
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+
+                        if filepath.stat().st_size > 1000:
+                            return "springer"
+                        else:
+                            filepath.unlink()
+                            return None
 
             return None
 
@@ -277,7 +414,8 @@ class PDFDownloader:
 
         Tries sources in order:
         1. Elsevier ScienceDirect API (if enabled and API key available)
-        2. Unpaywall API (open access fallback)
+        2. Springer Nature API (if enabled and API key available)
+        3. Unpaywall API (open access fallback)
 
         Args:
             paper: Paper object with metadata.
@@ -321,6 +459,17 @@ class PDFDownloader:
                     source=source
                 )
 
+        # Try Springer (for Springer publications)
+        if self.use_springer:
+            source = self.download_from_springer(paper.doi, filepath)
+            if source:
+                return DownloadResult(
+                    paper=paper,
+                    success=True,
+                    filepath=filepath,
+                    source=source
+                )
+
         # Try Unpaywall (open access)
         if self.use_unpaywall:
             unpaywall_result = self.get_unpaywall_pdf_url(paper.doi)
@@ -336,12 +485,16 @@ class PDFDownloader:
 
         # All sources failed
         error_msg = "PDF not available"
-        if self.use_elsevier and self.use_unpaywall:
-            error_msg = "PDF not available (no subscription access or open access)"
-        elif self.use_elsevier:
-            error_msg = "PDF not available via Elsevier (check subscription/IP)"
-        elif self.use_unpaywall:
-            error_msg = "PDF not available via open access"
+        sources_tried = []
+        if self.use_elsevier:
+            sources_tried.append("Elsevier")
+        if self.use_springer:
+            sources_tried.append("Springer")
+        if self.use_unpaywall:
+            sources_tried.append("Unpaywall")
+
+        if sources_tried:
+            error_msg = f"PDF not available via {', '.join(sources_tried)}"
 
         return DownloadResult(
             paper=paper,

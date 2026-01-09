@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.paper_fetcher import PaperFetcher, generate_review_summary
 from src.query_builder import build_query_from_topic
+from src.csl_exporter import CSLExporter
 
 
 def main():
@@ -103,11 +104,26 @@ Examples:
         help="Don't save results to JSON file"
     )
 
+    # Export options
+    parser.add_argument(
+        "--csl",
+        action="store_true",
+        help="Also export results to CSL JSON format for Zotero (recommended)"
+    )
+    parser.add_argument(
+        "--csl-only",
+        action="store_true",
+        help="Export to CSL JSON format only (no internal JSON file)"
+    )
+
     args = parser.parse_args()
 
     # Validate arguments
     if not args.topic and not args.query and not args.load:
         parser.error("One of --topic, --query, or --load is required")
+
+    # Handle --csl-only: implies --no-save for internal JSON
+    save_json = not args.no_save and not args.csl_only
 
     fetcher = PaperFetcher()
 
@@ -123,7 +139,7 @@ Examples:
         papers = fetcher.fetch_papers(
             args.query,
             count=args.count,
-            save=not args.no_save
+            save=save_json
         )
         query = args.query
         print(f"Found {len(papers)} papers", file=sys.stderr)
@@ -141,7 +157,7 @@ Examples:
             exclude=exclude,
             year_from=args.year_from,
             year_to=args.year_to,
-            save=not args.no_save
+            save=save_json
         )
         print(f"Generated query: {query}", file=sys.stderr)
         print(f"Found {len(papers)} papers", file=sys.stderr)
@@ -158,6 +174,16 @@ Examples:
         if hasattr(sys.stdout, 'reconfigure'):
             sys.stdout.reconfigure(encoding='utf-8')
         print(summary)
+
+    # CSL JSON export
+    if args.csl or args.csl_only:
+        exporter = CSLExporter(output_dir="data/papers")
+        csl_result = exporter.export_papers(papers)
+
+        if csl_result.success:
+            print(f"CSL JSON exported to: {csl_result.filepath}", file=sys.stderr)
+        else:
+            print(f"CSL JSON export failed: {csl_result.error}", file=sys.stderr)
 
 
 if __name__ == "__main__":

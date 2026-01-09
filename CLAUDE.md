@@ -19,9 +19,10 @@ PaperSearch/
 │   ├── scopus_client.py   # Scopus API 클라이언트
 │   ├── query_builder.py   # 검색 쿼리 빌더
 │   ├── paper_fetcher.py   # 논문 가져오기 및 저장
-│   └── pdf_downloader.py  # PDF 다운로더 (Unpaywall API 사용)
+│   ├── pdf_downloader.py  # PDF 다운로더 (Unpaywall API 사용)
+│   └── ris_exporter.py    # RIS 내보내기 (Zotero용)
 ├── data/
-│   ├── papers/            # 검색 결과 저장 디렉토리
+│   ├── papers/            # 검색 결과 저장 디렉토리 (.json, .ris)
 │   └── pdfs/              # 다운로드된 PDF 저장 디렉토리
 └── .claude/
     └── commands/          # 슬래시 커맨드 정의
@@ -228,6 +229,24 @@ python search_papers.py --query 'TITLE-ABS-KEY("term1") AND TITLE-ABS-KEY("term2
 
 # 저장된 결과 로드
 python search_papers.py --load data/papers/papers_YYYYMMDD_HHMMSS.json
+
+# JSON + RIS 동시 저장 (Zotero import용)
+python search_papers.py --topic "주제" --count 30 --ris
+
+# RIS만 저장 (JSON 저장 안 함)
+python search_papers.py --topic "주제" --count 30 --ris-only
+
+# 기존 JSON에서 RIS 변환
+python search_papers.py --load data/papers/papers_YYYYMMDD_HHMMSS.json --ris
+```
+
+### RIS 파일 활용 (Zotero 연동)
+```bash
+# 검색 결과를 Zotero로 import할 RIS 파일 생성
+python search_papers.py --query 'TITLE-ABS-KEY("heat pipe")' --count 30 --ris
+
+# 생성된 RIS 파일을 Zotero에서 File > Import로 가져오기
+# 파일 위치: data/papers/papers_YYYYMMDD_HHMMSS.ris
 ```
 
 ### 저장된 결과 확인

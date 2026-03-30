@@ -249,6 +249,53 @@ python search_papers.py --query 'TITLE-ABS-KEY("heat pipe")' --count 30 --ris
 # 파일 위치: data/papers/papers_YYYYMMDD_HHMMSS.ris
 ```
 
+### DOI Content Negotiation으로 Publisher 정식 RIS 다운로드
+
+`search_papers.py --ris`가 생성하는 RIS는 Scopus 메타데이터 기반이다.
+**Publisher 정식 서지정보**(정확한 페이지, 볼륨, 저자명 등)가 필요하면
+DOI content negotiation을 사용한다.
+
+**원리**: DOI resolver(`https://doi.org/<DOI>`)에 `Accept: application/x-research-info-systems`
+헤더를 보내면 publisher가 정식 RIS를 반환한다. 기관 인증 불필요 (공개 메타데이터).
+
+```bash
+# 단일 논문 RIS 다운로드
+curl -LH "Accept: application/x-research-info-systems" https://doi.org/10.1016/j.buildenv.2021.108315
+
+# 파일로 저장
+curl -LH "Accept: application/x-research-info-systems" \
+  https://doi.org/10.1016/j.buildenv.2021.108315 \
+  -o calzolari2021.ris
+```
+
+```python
+# Python으로 다수 DOI 일괄 다운로드
+import urllib.request, time
+
+dois = ["10.1016/j.buildenv.2021.108315", "10.1063/5.0257555"]
+with open("output.ris", "w", encoding="utf-8") as f:
+    for doi in dois:
+        req = urllib.request.Request(
+            f"https://doi.org/{doi}",
+            headers={"Accept": "application/x-research-info-systems"}
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            f.write(resp.read().decode("utf-8", errors="replace") + "\n\n")
+        time.sleep(0.5)  # rate limit 준수
+```
+
+**`search_papers.py --ris`와의 차이:**
+
+| 방법 | 소스 | 기관 인증 | 용도 |
+|------|------|----------|------|
+| `--ris` | Scopus 메타데이터 | 필요 | 검색 결과 일괄 export |
+| DOI content negotiation | Publisher 정식 데이터 | 불필요 | 선별 논문의 정확한 서지 확보 |
+
+**권장 워크플로우:**
+1. `search_papers.py --ris`로 검색 결과 일괄 RIS 생성 (기관망 필요)
+2. 선별 후, DOI content negotiation으로 정식 RIS 확보 (어디서든 가능)
+3. RIS → Zotero import → BetterBibTeX → `.bib` 자동 동기화
+
 ### 저장된 결과 확인
 ```bash
 ls -la data/papers/

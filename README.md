@@ -13,6 +13,8 @@ Scopus API를 활용한 학술 논문 검색 및 AI 에이전트 기반 선별 �
 - ✅ 다양한 검색 옵션 (주제, 연도, 키워드 추가/제외)
 - ✅ 검색 결과 JSON 저장 및 재사용
 - ✅ 인용 수, 저널 품질, 관련성 기반 자동 선별
+- ✅ PDF 다운로드 (Elsevier / Springer / Unpaywall)
+- ✅ **전문·figure 추출** — PDF가 구독 제한으로 막혀도 전문 XML과 게재판 figure 원본을 확보
 
 ## 설치
 
@@ -123,16 +125,47 @@ Claude Code를 사용하면 AI가 자동으로 키워드를 확장하고 논문�
 PaperSearch/
 ├── CLAUDE.md              # Claude Code 워크플로우 정의
 ├── search_papers.py       # 메인 CLI 스크립트
+├── download_papers.py     # PDF 다운로드 CLI
+├── fetch_fulltext.py      # 전문·figure 추출 CLI
 ├── src/
 │   ├── scopus_client.py   # Scopus API 클라이언트
 │   ├── query_builder.py   # 검색 쿼리 빌더
-│   └── paper_fetcher.py   # 논문 가져오기 및 저장
+│   ├── paper_fetcher.py   # 논문 가져오기 및 저장
+│   ├── pdf_downloader.py  # PDF 다운로더
+│   └── fulltext_fetcher.py # 전문 XML·figure 원본·Springer 직접 PDF
 ├── data/
-│   └── papers/            # 검색 결과 JSON 저장
+│   ├── papers/            # 검색 결과 JSON 저장
+│   ├── pdfs/              # PDF
+│   └── fulltext/          # 전문 XML + figure 이미지
 └── .claude/
     └── commands/          # 슬래시 커맨드 정의
         └── paper-search.md
 ```
+
+## 전문·figure 추출 (PDF가 막혔을 때)
+
+Elsevier는 **PDF 다운로드 권한과 TDM(text-and-data-mining) 권한을 별도로 부여**합니다.
+PDF가 첫 페이지 프리뷰만 오는 논문도 전문 XML은 열리는 경우가 많습니다.
+
+```bash
+# 어떤 경로가 열리는지 진단
+python fetch_fulltext.py --probe 10.1016/j.ijthermalsci.2023.108376
+#   elsevier-xml     HTTP 200 | OK | OK
+#   elsevier-pdf     HTTP 200 | WARNING - Response limited to first page ... | BLOCKED
+
+# 전문 + figure 원본 이미지 확보
+python fetch_fulltext.py --doi 10.1016/j.ijthermalsci.2023.108376
+
+# 검색 결과 일괄 / 텍스트만
+python fetch_fulltext.py --load data/papers/papers_YYYYMMDD_HHMMSS.json
+python fetch_fulltext.py --doi-file dois.txt --no-figures
+```
+
+**figure 분석에는 PDF보다 이 경로가 낫습니다** — 페이지 렌더가 아닌 게재판 원본 이미지가 오고,
+캡션은 XML 정본 텍스트로 따로 확보됩니다.
+
+⚠ `/article/entitlement/` 엔드포인트가 403을 반환해도 실제 콘텐츠 엔드포인트는 열릴 수 있습니다.
+entitlement 응답만 보고 포기하지 말고 `--probe`로 판정하세요.
 
 ## 검색 팁
 

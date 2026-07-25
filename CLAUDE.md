@@ -15,15 +15,20 @@ PaperSearch/
 ├── CLAUDE.md              # 이 파일 - Claude Code 워크플로우 정의
 ├── search_papers.py       # 논문 검색 CLI 스크립트
 ├── download_papers.py     # PDF 다운로드 CLI 스크립트
+├── fetch_fulltext.py      # 전문·figure 추출 CLI (PDF가 막혔을 때)
+├── convert_to_csl.py      # 내부 JSON → CSL JSON 사후 변환
+├── merge_csl.py           # 다수 CSL JSON 병합
 ├── src/
 │   ├── scopus_client.py   # Scopus API 클라이언트
 │   ├── query_builder.py   # 검색 쿼리 빌더
 │   ├── paper_fetcher.py   # 논문 가져오기 및 저장
-│   ├── pdf_downloader.py  # PDF 다운로더 (Unpaywall API 사용)
-│   └── ris_exporter.py    # RIS 내보내기 (Zotero용)
+│   ├── pdf_downloader.py  # PDF 다운로더 (Elsevier/Springer/Unpaywall)
+│   ├── fulltext_fetcher.py # 전문 XML·figure 원본·Springer 직접 PDF
+│   └── csl_exporter.py    # CSL JSON 내보내기 (Zotero용)
 ├── data/
-│   ├── papers/            # 검색 결과 저장 디렉토리 (.json, .ris)
-│   └── pdfs/              # 다운로드된 PDF 저장 디렉토리
+│   ├── papers/            # 검색 결과 저장 디렉토리 (.json)
+│   ├── pdfs/              # 다운로드된 PDF 저장 디렉토리
+│   └── fulltext/          # 전문 XML + figure 원본 이미지
 └── .claude/
     └── commands/          # 슬래시 커맨드 정의
 ```
@@ -215,6 +220,59 @@ python search_papers.py --topic "주요키워드" --exclude "제외키워드1,�
    - 소스별 다운로드 통계 표시 (elsevier, unpaywall 등)
    - 다운로드된 파일 위치: `data/pdfs/`
 
+### 7단계: PDF가 막혔을 때 — 전문·figure 직접 추출 (중요)
+
+**"journal not in institutional subscription"으로 실패했다고 포기하지 말 것.**
+Elsevier는 **PDF 다운로드 권한과 TDM(text-and-data-mining) 권한을 별도로 부여**한다.
+PDF가 첫 페이지만 오는 논문도 `Accept: text/xml`로는 **전문이 그대로 오는 경우가 많다**
+(2026-07-25 검증: PDF가 전부 막힌 Elsevier 23편 중 23편이 XML로 확보됨).
+
+```bash
+# 0. 어떤 경로가 열리는지부터 진단 (아무것도 저장 안 함)
+python fetch_fulltext.py --probe 10.1016/j.ijthermalsci.2023.108376
+
+# 1. 전문 + figure 원본 이미지 확보
+python fetch_fulltext.py --doi 10.1016/j.ijthermalsci.2023.108376
+
+# 2. 검색 결과 전체 일괄 (DOI 있는 논문만)
+python fetch_fulltext.py --load data/papers/papers_20260725_155604.json
+
+# 3. 텍스트만 (논문당 요청 1회 — 훨씬 빠름)
+python fetch_fulltext.py --doi-file dois.txt --no-figures
+
+# 4. 스크리닝 보조: 절 제목 출력 (실험 절 존재 여부 판별)
+python fetch_fulltext.py --doi 10.1016/... --sections
+```
+
+**확보되는 것**: 전문 XML(`data/fulltext/<PII>.xml`) + **게재판 figure 원본 이미지**
+(`data/fulltext/figs_<PII>/`). 캡션은 XML 텍스트로 분리 확보된다.
+
+**figure/캡션 분석에는 이 경로가 PDF보다 낫다.** PDF는 페이지를 렌더해야 하므로 해상도가 깎이고
+캡션을 OCR로 긁어내야 하지만, 이 경로는 원본 이미지와 정본 캡션 텍스트를 따로 준다.
+
+#### 반드시 알아야 할 함정
+
+| 함정 | 내용 |
+|------|------|
+| **entitlement 엔드포인트를 신뢰하지 말 것** | `/article/entitlement/`가 **403을 뱉어도 실제 XML·object는 열린다.** 이 응답만 보고 포기하면 확보 가능한 논문을 놓친다. 판정은 `--probe`로 |
+| **`_lrg` 접미사는 404** | figure 이미지는 `.../ref/gr1`로 요청. `gr1_lrg`는 존재하지 않음 |
+| **API 키가 응답 헤더로 되돌아옴** | Elsevier가 `X-ELS-APIKey`를 그대로 반환한다. **응답 헤더 전체를 로그에 찍지 말 것** |
+| **Springer는 API 키가 필요 없다** | `link.springer.com/content/pdf/<DOI>.pdf`가 기관 IP만으로 열린다 (SPRINGER_META_API_KEY 불필요) |
+| **참고문헌 제외 후 검색** | 본문 키워드 스크리닝 시 `body_text()`를 쓸 것. 참고문헌을 포함하면 실험을 *인용만 한* 논문이 실험을 *포함한* 논문으로 오판된다 |
+
+#### Cloudflare 캡차와의 관계
+
+ScienceDirect 웹을 브라우저 자동화로 긁다가 Cloudflare 봇 플래그에 걸렸다면,
+**캡차를 뚫으려 하기 전에 이 경로를 먼저 시도한다.** 위 API 경로는 캡차와 무관하며,
+2026-07-25 캠페인에서 캡차를 한 번도 건드리지 않고 22편을 확보했다.
+(캡차 페이지를 탭에 열어둔 채 "무접촉 대기"를 하면 Turnstile 위젯이 계속 재시도 요청을
+보내 백오프가 무효화되므로, 대기 전 브라우저를 반드시 닫을 것.)
+
+#### green OA 폴백 시 주의
+
+OpenAlex·Semantic Scholar로 OA를 훑을 때, **한쪽 API가 실패했는데 "OA 없음"으로 기록하면
+근거 없는 판정이 남는다.** 실패는 실패로 구분해 기록하고, 실패 건은 재조회할 것.
+
 ---
 
 ## 유용한 명령어
@@ -230,28 +288,31 @@ python search_papers.py --query 'TITLE-ABS-KEY("term1") AND TITLE-ABS-KEY("term2
 # 저장된 결과 로드
 python search_papers.py --load data/papers/papers_YYYYMMDD_HHMMSS.json
 
-# JSON + RIS 동시 저장 (Zotero import용)
-python search_papers.py --topic "주제" --count 30 --ris
+# JSON + CSL JSON 동시 저장 (Zotero import용)
+python search_papers.py --topic "주제" --count 30 --csl
 
-# RIS만 저장 (JSON 저장 안 함)
-python search_papers.py --topic "주제" --count 30 --ris-only
+# CSL JSON만 저장 (내부 JSON 저장 안 함)
+python search_papers.py --topic "주제" --count 30 --csl-only
 
-# 기존 JSON에서 RIS 변환
-python search_papers.py --load data/papers/papers_YYYYMMDD_HHMMSS.json --ris
+# 기존 내부 JSON에서 CSL JSON 변환
+python convert_to_csl.py data/papers/papers_YYYYMMDD_HHMMSS.json
 ```
 
-### RIS 파일 활용 (Zotero 연동)
+### CSL JSON 파일 활용 (Zotero 연동)
 ```bash
-# 검색 결과를 Zotero로 import할 RIS 파일 생성
-python search_papers.py --query 'TITLE-ABS-KEY("heat pipe")' --count 30 --ris
+# 검색 결과를 Zotero로 import할 CSL JSON 파일 생성
+python search_papers.py --query 'TITLE-ABS-KEY("heat pipe")' --count 30 --csl
 
-# 생성된 RIS 파일을 Zotero에서 File > Import로 가져오기
-# 파일 위치: data/papers/papers_YYYYMMDD_HHMMSS.ris
+# 생성된 CSL JSON 파일을 Zotero에서 File > Import로 가져오기
+# 파일 위치: data/papers/ (papers_YYYYMMDD_HHMMSS.json, CSL 형식)
+
+# 여러 검색 결과 병합
+python merge_csl.py
 ```
 
 ### DOI Content Negotiation으로 Publisher 정식 RIS 다운로드
 
-`search_papers.py --ris`가 생성하는 RIS는 Scopus 메타데이터 기반이다.
+`search_papers.py --csl`이 생성하는 CSL JSON은 Scopus 메타데이터 기반이다.
 **Publisher 정식 서지정보**(정확한 페이지, 볼륨, 저자명 등)가 필요하면
 DOI content negotiation을 사용한다.
 
@@ -284,15 +345,15 @@ with open("output.ris", "w", encoding="utf-8") as f:
         time.sleep(0.5)  # rate limit 준수
 ```
 
-**`search_papers.py --ris`와의 차이:**
+**`search_papers.py --csl`와의 차이:**
 
 | 방법 | 소스 | 기관 인증 | 용도 |
 |------|------|----------|------|
-| `--ris` | Scopus 메타데이터 | 필요 | 검색 결과 일괄 export |
+| `--csl` | Scopus 메타데이터 | 필요 | 검색 결과 일괄 export |
 | DOI content negotiation | Publisher 정식 데이터 | 불필요 | 선별 논문의 정확한 서지 확보 |
 
 **권장 워크플로우:**
-1. `search_papers.py --ris`로 검색 결과 일괄 RIS 생성 (기관망 필요)
+1. `search_papers.py --csl`로 검색 결과 일괄 CSL JSON 생성 (기관망 필요)
 2. 선별 후, DOI content negotiation으로 정식 RIS 확보 (어디서든 가능)
 3. RIS → Zotero import → BetterBibTeX → `.bib` 자동 동기화
 
@@ -340,6 +401,13 @@ ls -la data/pdfs/
 5. **PDF 다운로드**:
    - Elsevier 논문: 기관 구독 + 기관 네트워크(IP)에서 SCOPUS_API_KEY로 다운로드 가능
    - 기타 출판사: Unpaywall API를 통해 오픈 액세스 논문만 다운로드 가능
+   - ⚠ **Elsevier entitlement는 저널 단위**: 기관망이라도 구독 안 된 저널은 API가
+     HTTP 200 + PDF로 **첫 페이지 프리뷰만** 반환 (`X-ELS-Status: WARNING - Response
+     limited to first page ...` 헤더가 유일한 신호). `pdf_downloader.py`가 이 헤더를
+     감지해 프리뷰를 거부하고 Unpaywall 폴백으로 넘어감 (2026-07-06 수정).
+   - ✅ **PDF 실패 = 끝이 아니다**: PDF 권한과 TDM(전문 XML) 권한은 별개다.
+     `fetch_fulltext.py`로 전문과 figure 원본을 확보할 수 있는 경우가 많다 (위 7단계).
+     브라우저 수동 확보나 캡차 돌파는 **그 다음** 수단이다.
 
 ### 문제 해결
 

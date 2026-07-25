@@ -40,6 +40,7 @@ env/
 # Data files (keep directory structure)
 data/papers/*.json
 data/pdfs/
+data/fulltext/
 
 # OS
 .DS_Store

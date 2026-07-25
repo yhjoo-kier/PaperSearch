@@ -77,6 +77,10 @@ class PDFDownloader:
             "User-Agent": "PaperSearch/1.0 (Academic Research Tool)"
         })
 
+        # Set when Elsevier responds with a first-page-only preview
+        # (institution not subscribed to that journal).
+        self.last_elsevier_not_entitled = False
+
     def sanitize_filename(self, title: str, max_length: int = 100) -> str:
         """Create a safe filename from paper title.
 
@@ -125,6 +129,16 @@ class PDFDownloader:
                 stream=True,
                 allow_redirects=True
             )
+
+            # Elsevier returns HTTP 200 + application/pdf even when the API key
+            # is NOT entitled to the journal — but the body is only the FIRST PAGE.
+            # The only signal is the X-ELS-Status header, e.g.:
+            #   "WARNING - Response limited to first page because requestor not entitled to resource"
+            # Treat this as failure so the Unpaywall fallback can run.
+            els_status = response.headers.get("X-ELS-Status", "")
+            if "not entitled" in els_status.lower() or "first page" in els_status.lower():
+                self.last_elsevier_not_entitled = True
+                return None
 
             # Check for successful response
             if response.status_code == 200:
@@ -449,6 +463,7 @@ class PDFDownloader:
             )
 
         # Try Elsevier first (for subscribed content)
+        self.last_elsevier_not_entitled = False
         if self.use_elsevier:
             source = self.download_from_elsevier(paper.doi, filepath)
             if source:
@@ -495,6 +510,8 @@ class PDFDownloader:
 
         if sources_tried:
             error_msg = f"PDF not available via {', '.join(sources_tried)}"
+        if self.last_elsevier_not_entitled:
+            error_msg += " (Elsevier: journal not in institutional subscription - first-page preview rejected)"
 
         return DownloadResult(
             paper=paper,
